@@ -11,7 +11,7 @@ from ui_components import (
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Enhanced K-Means Clustering",
+    page_title="K-Means Clustering Simulation",
     page_icon="🗺️",
     layout="wide"
 )
@@ -31,11 +31,10 @@ if 'standard_result' not in st.session_state:
     st.session_state.standard_result = None
 if 'enhanced_result' not in st.session_state:
     st.session_state.enhanced_result = None
-if 'comparison_results' not in st.session_state:
-    st.session_state.comparison_results = None
 
 # --- Main App UI ---
-st.title("Enhanced K-Means Clustering for Spatiotemporal Data 🗺️")
+st.title("K-Means Clustering Simulation for Spatiotemporal Data")
+
 
 # --- STEP 1: UPLOAD & PREPROCESS ---
 if st.session_state.step == "upload":
@@ -65,6 +64,8 @@ if st.session_state.step == "upload":
                 st.session_state.df_pre_geocoding = raw_df
                 st.session_state.step = "mapping"
                 st.rerun()
+   
+    
 
 # --- STEP 2: COLUMN MAPPING & GEOCODING ---
 if st.session_state.step == "mapping":
@@ -78,7 +79,8 @@ if st.session_state.step == "mapping":
     region_col = st.selectbox("Select Region column:", columns) if has_region_col else None
 
     if st.button("Confirm Mapping & Geocode"):
-        df_geocoded = geocode_dataframe(st.session_state.df_pre_geocoding, loc_col, time_col, region_col)
+        with st.spinner("Geocoding data... This may take a moment."):
+            df_geocoded = geocode_dataframe(st.session_state.df_pre_geocoding, loc_col, time_col, region_col)
         
         if df_geocoded is not None:
             # Create two separate copies of the data to ensure analysis paths are distinct
@@ -87,77 +89,70 @@ if st.session_state.step == "mapping":
             st.session_state.step = "analysis"
             st.rerun()
 
-# --- STEP 3: RUN ANALYSIS & VIEW RESULTS ---
+# --- STEP 3: SEQUENTIAL ANALYSIS & COMPARISON ---
 if st.session_state.step == "analysis":
-    st.sidebar.title("Analysis Navigation")
-    analysis_choice = st.sidebar.radio(
-        "Choose an analysis to perform:",
-        ("Standard K-Means", "Enhanced K-Means", "Compare Both"),
-        key="nav_choice"
-    )
+    st.sidebar.title("Analysis Parameters")
     
-    st.header(f"Step 3: {analysis_choice} Analysis")
-    st.info("The data has been prepared (geocoded, etc.) and is ready for analysis.")
-    st.dataframe(st.session_state.df_for_standard.head(3))
-    st.write("---")
-
     # --- Standard K-Means Analysis ---
-    if analysis_choice == "Standard K-Means":
-        st.sidebar.header("Parameters")
+    with st.container():
+        st.header("Step 3: Standard K-Means Analysis")
+        st.write("This analysis uses the prepared data without any outlier removal.")
+        st.dataframe(st.session_state.df_for_standard.head(3))
+
+        st.sidebar.subheader("Standard K-Means")
         k_standard = st.sidebar.slider("Number of Clusters (K)", 2, 10, 4, key="k_std")
         
-        st.subheader("Run Standard K-Means Analysis")
-        st.write("This analysis uses the prepared data without any outlier removal.")
         if st.button("🚀 Run Standard Analysis"):
             with st.spinner("Running Standard K-Means..."):
                 result = run_standard_analysis(st.session_state.df_for_standard, k_standard)
             if result:
                 st.session_state.standard_result = result
-        
-        if st.session_state.standard_result:
-            display_single_result(st.session_state.standard_result)
-
-    # --- Enhanced K-Means Analysis ---
-    elif analysis_choice == "Enhanced K-Means":
-        st.sidebar.header("Parameters")
-        k_enhanced = st.sidebar.slider("Number of Clusters (K)", 2, 10, 4, key="k_enh")
-        contamination = st.sidebar.slider("Outlier Percentage", 0.01, 0.5, 0.1, key="contam")
-
-        st.subheader("Run Enhanced K-Means Analysis")
-        st.write("This analysis first cleans the data by removing outliers using Isolation Forest.")
-        if st.button("🚀 Run Enhanced Analysis"):
-            with st.spinner("Running Enhanced K-Means..."):
-                result = run_enhanced_analysis(st.session_state.df_for_enhanced, k_enhanced, contamination)
-            if result:
-                st.session_state.enhanced_result = result
-
-        if st.session_state.enhanced_result:
-            display_single_result(st.session_state.enhanced_result)
-
-    # --- Compare Both Analyses ---
-    elif analysis_choice == "Compare Both":
-        st.sidebar.header("Parameters")
-        n_clusters = st.sidebar.slider("Number of Clusters (K)", 2, 10, 4, key="k_comp")
-        contamination_comp = st.sidebar.slider("Outlier Percentage", 0.01, 0.5, 0.1, key="contam_comp")
-
-        st.subheader("Run Comparison Analysis")
-        st.write("This will run both analyses with the specified parameters and show a side-by-side comparison.")
-        if st.button("🚀 Run Full Comparison"):
-            with st.spinner("Running both analyses..."):
-                results_a = run_standard_analysis(st.session_state.df_for_standard, n_clusters)
-                results_b = run_enhanced_analysis(st.session_state.df_for_enhanced, n_clusters, contamination_comp)
-            
-            if results_a and results_b:
-                st.session_state.comparison_results = {'group_a': results_a, 'group_b': results_b}
-        
-        if st.session_state.comparison_results:
-            results = st.session_state.comparison_results
-            display_evaluation_metrics(results)
-            display_cluster_maps(results)
-            display_regional_map(results)
-            display_key_insights(results)
-            display_regional_breakdown(results)
+                st.success("Standard K-Means analysis complete.")
     
+    # If standard is done, show its results and the option for enhanced
+    if st.session_state.standard_result:
+        st.write("---")
+        with st.expander("View Standard K-Means Results", expanded=False):
+            display_single_result(st.session_state.standard_result)
+        st.write("---")
+
+        # --- Enhanced K-Means Analysis ---
+        with st.container():
+            st.header("Step 4: Enhanced K-Means Analysis")
+            st.write("This analysis first cleans the data by removing outliers using Isolation Forest.")
+            
+            st.sidebar.subheader("Enhanced K-Means")
+            k_enhanced = st.sidebar.slider("Number of Clusters (K)", 2, 10, 4, key="k_enh")
+            percentage_options = [1, 5, 10, 15, 20, 25]
+            selected_percentage = st.sidebar.selectbox(
+                "Outlier Percentage (%)", options=percentage_options, index=2, key="contam"
+            )
+            contamination = selected_percentage / 100.0
+
+            if st.button("🚀 Run Enhanced Analysis"):
+                with st.spinner("Running Enhanced K-Means..."):
+                    result = run_enhanced_analysis(st.session_state.df_for_enhanced, k_enhanced, contamination)
+                if result:
+                    st.session_state.enhanced_result = result
+                    st.success("Enhanced K-Means analysis complete.")
+
+    # If both analyses are complete, show the final comparison
+    if st.session_state.standard_result and st.session_state.enhanced_result:
+        st.write("---")
+        st.header("Final Comparison")
+        st.info("Both analyses are complete. Here is a side-by-side comparison of the results.")
+        
+        comparison_results = {
+            'group_a': st.session_state.standard_result,
+            'group_b': st.session_state.enhanced_result
+        }
+        
+        display_evaluation_metrics(comparison_results)
+        display_cluster_maps(comparison_results)
+        display_regional_map(comparison_results)
+        display_key_insights(comparison_results)
+        display_regional_breakdown(comparison_results)
+
     st.sidebar.write("---")
     if st.sidebar.button("Start Over"):
         st.session_state.clear()
