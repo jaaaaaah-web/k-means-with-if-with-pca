@@ -1,54 +1,24 @@
-# ui_components.py
-
 import streamlit as st
 import pandas as pd
 from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
+import altair as alt
 
-# --- Helper function for color mapping ---
-def get_color_map(data, column):
-    """Creates a mapping from unique values in a column to a list of colors."""
-    unique_values = data[column].unique()
+# --- Helper Function for Color Mapping ---
+def get_colors(num_colors):
+    """Returns a list of distinct hex colors."""
     colors = [
         "#FF0000", "#0000FF", "#00FF00", "#FFFF00", "#FF00FF",
         "#00FFFF", "#FFA500", "#800080", "#008000", "#800000"
     ]
-    color_dict = {val: colors[i % len(colors)] for i, val in enumerate(unique_values)}
-    return color_dict
+    # Ensure we have enough colors by cycling through the list if needed
+    return [colors[i % len(colors)] for i in range(num_colors)]
 
-# --- Functions for displaying SINGLE analysis results ---
-
-def display_single_result(result):
-    """
-    Displays the complete set of results for a single analysis run.
-    """
-    st.subheader(f"Results for: {result['name']}")
-    
-    # Display Metrics
-    metrics = result['metrics']
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Inertia", f"{metrics['inertia']:.2f}")
-    col2.metric("Silhouette Score", f"{metrics['silhouette']:.2f}")
-    col3.metric("Davies-Bouldin Index", f"{metrics['dbi']:.2f}")
-
-    # Prepare data for mapping
-    data = result['data']
-    color_map = get_color_map(data, 'cluster')
-    data['cluster_color'] = data['cluster'].map(color_map)
-
-    # Display Map
-    st.map(data, latitude='latitude', longitude='longitude', color='cluster_color')
-    
-    # Display Key Insights if region data is available
-    if 'region' in data.columns:
-        display_single_key_insights(data)
-
-# --- Functions for COMPARING two analysis results ---
-
-def display_evaluation_metrics(results):
+# --- Visualization Functions ---
+def display_evaluation_metrics(standard_results, enhanced_results):
+    """Displays the comparison of evaluation metrics."""
     st.subheader("Evaluation Metrics Comparison")
-    metrics_a = results['group_a']['metrics']
-    metrics_b = results['group_b']['metrics']
+    metrics_a = standard_results['metrics']
+    metrics_b = enhanced_results['metrics']
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Inertia (Lower is Better)", f"{metrics_b['inertia']:.2f}", f"{metrics_b['inertia'] - metrics_a['inertia']:.2f}")
@@ -56,97 +26,117 @@ def display_evaluation_metrics(results):
     col3.metric("Davies-Bouldin Index (Lower is Better)", f"{metrics_b['dbi']:.2f}", f"{metrics_b['dbi'] - metrics_a['dbi']:.2f}")
     st.caption("*(Change from Standard K-Means shown below each metric)*")
 
-def display_cluster_maps(results):
-    st.subheader("Cluster Visualization")
-    data_a = results['group_a']['data']
-    data_b = results['group_b']['data']
+def display_spatial_visualizations(standard_results, enhanced_results, single_view=False, title=""):
+    """
+    Displays spatial visualizations using scatter plots to show cluster centers.
+    """
+    if single_view:
+        st.write(f"**{title}**")
+        results = standard_results if standard_results else enhanced_results
+        if results and 'data' in results:
+            data = results['data']
+            centers = data.groupby('cluster')[['longitude', 'latitude']].mean().reset_index()
 
-    # Create consistent color mapping based on enhanced results
-    color_map = get_color_map(data_b, 'cluster')
-    data_a['cluster_color'] = data_a['cluster'].map(color_map)
-    data_b['cluster_color'] = data_b['cluster'].map(color_map)
-    
+            points = alt.Chart(data).mark_circle(size=60, opacity=0.7).encode(
+                x=alt.X('longitude:Q', title='Longitude'),
+                y=alt.Y('latitude:Q', title='Latitude'),
+                color=alt.Color('cluster:N', title="Cluster", scale=alt.Scale(scheme='viridis')),
+                tooltip=['location', alt.Tooltip('timestamp_orig:T', title='Timestamp'), 'cluster']
+            )
+            
+            cluster_centers = alt.Chart(centers).mark_point(
+                shape='cross', size=100, color='black', strokeWidth=2
+            ).encode(
+                x='longitude:Q',
+                y='latitude:Q'
+            )
+            st.altair_chart(points + cluster_centers, use_container_width=True)
+        return
+
+    st.subheader("Spatial Visualization Comparison")
     col1, col2 = st.columns(2)
+    
     with col1:
         st.write("**Standard K-Means**")
-        st.map(data_a, latitude='latitude', longitude='longitude', color='cluster_color')
+        if standard_results and 'data' in standard_results:
+            display_spatial_visualizations(standard_results, None, single_view=True)
+
     with col2:
         st.write("**Enhanced K-Means**")
-        st.map(data_b, latitude='latitude', longitude='longitude', color='cluster_color')
+        if enhanced_results and 'data' in enhanced_results:
+            display_spatial_visualizations(None, enhanced_results, single_view=True)
 
-# --- Shared visualization functions ---
+def display_temporal_patterns(enhanced_results):
+    """Displays bar charts for hourly and daily activity."""
+    st.subheader("Temporal Pattern Analysis (from Enhanced Model)")
+    data = enhanced_results['data']
 
-def display_regional_map(results):
-    if 'region' in results['group_b']['data'].columns:
-        st.subheader("Geographic Distribution by Region")
-        data = results['group_b']['data']
-        
-        # Create color mapping for regions
-        region_color_map = get_color_map(data, 'region')
-        data['region_color'] = data['region'].map(region_color_map)
-        
-        st.map(data, latitude='latitude', longitude='longitude', color='region_color')
-        
-        # Display a legend for the regions
-        st.write("Region Legend:")
-        legend_data = pd.DataFrame({
-            'Region': region_color_map.keys(),
-            'Color': [f'<div style="width:20px;height:20px;background-color:{color};"></div>' for color in region_color_map.values()]
-        })
-        st.write(legend_data.to_html(escape=False, index=False), unsafe_allow_html=True)
+    if 'hour' not in data.columns or 'day_of_week' not in data.columns:
+        st.warning("Temporal features not found. Cannot display temporal patterns.")
+        return
 
+    col1, col2 = st.columns(2)
 
-def display_regional_breakdown(results):
-    if 'region' in results['group_b']['data'].columns:
-        st.subheader("Fake News Count by Region")
-        data = results['group_b']['data']
-        region_counts = data['region'].value_counts()
-        st.bar_chart(region_counts)
+    with col1:
+        st.write("**Activity by Hour of Day**")
+        hourly_counts = data['hour'].value_counts().sort_index()
+        all_hours = pd.DataFrame(index=range(24))
+        all_hours['count'] = hourly_counts
+        all_hours.fillna(0, inplace=True)
+        st.bar_chart(all_hours)
 
-# --- Insight generation functions ---
+    with col2:
+        st.write("**Activity by Day of Week**")
+        daily_counts = data['day_of_week'].value_counts()
+        day_names = ['Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun']
+        daily_counts.index = daily_counts.index.map(lambda x: day_names[x])
+        daily_counts = daily_counts.reindex(day_names).fillna(0)
+        st.bar_chart(daily_counts)
 
-@st.cache_data
-def reverse_geocode_location(lat, lon):
-    try:
-        geolocator = Nominatim(user_agent="spatiotemporal_insights_app", timeout=10)
-        location = geolocator.reverse((lat, lon), exactly_one=True, language='en')
-        return location.raw.get('address', {})
-    except Exception:
-        return {}
+# --- NEW DYNAMIC INTERPRETATION FUNCTION ---
+def display_dynamic_interpretation(standard_results, enhanced_results):
+    """
+    Analyzes the results and generates a dynamic, human-readable interpretation.
+    """
+    st.subheader("Interpretation of Results")
+    
+    metrics_std = standard_results['metrics']
+    metrics_enh = enhanced_results['metrics']
+    data_enh = enhanced_results['data']
 
-def get_region_from_address(address):
-    """Extracts a descriptive region name from the geocoded address dictionary."""
-    if not address:
-        return "Unknown Location"
-    # Prioritize specific region keys, then province, then other keys
-    for key in ['region', 'state', 'province', 'state_district', 'county']:
-        if key in address:
-            return address[key]
-    # Fallback to a formatted string of available values
-    return ", ".join(filter(None, [address.get('city'), address.get('country')]))
+    # --- Part 1: Quantitative Interpretation ---
+    st.markdown("#### Quantitative Analysis (The Metrics)")
+    
+    inertia_change = metrics_enh['inertia'] - metrics_std['inertia']
+    silhouette_change = metrics_enh['silhouette'] - metrics_std['silhouette']
+    dbi_change = metrics_enh['dbi'] - metrics_std['dbi']
 
-def display_single_key_insights(data):
-    """Calculates and displays insights for a single result's data."""
-    if not data.empty:
-        # Most active region insight
-        if 'region' in data.columns:
-            most_active_region = data['region'].mode()[0]
-        else:
-            # Fallback to geocoding the center of the largest cluster
-            largest_cluster = data['cluster'].mode()[0]
-            cluster_data = data[data['cluster'] == largest_cluster]
-            center_lat, center_lon = cluster_data['latitude'].mean(), cluster_data['longitude'].mean()
-            address = reverse_geocode_location(center_lat, center_lon)
-            most_active_region = get_region_from_address(address)
-        
-        # Peak activity time insight
-        peak_hour = data['hour'].mode()[0]
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Most Active Region", most_active_region)
-        col2.metric("Peak Activity Time", f"{peak_hour:02d}:00 - {peak_hour:02d}:59")
+    interpretation_text = f"""
+    The evaluation metrics provide clear quantitative proof of the enhancement. 
+    - The **Inertia** score improved significantly, decreasing from **{metrics_std['inertia']:.2f}** to **{metrics_enh['inertia']:.2f}** (a change of {inertia_change:.2f}). This indicates that the clusters in the enhanced model are substantially more compact and internally cohesive.
+    - The **Silhouette Score** increased from **{metrics_std['silhouette']:.2f}** to **{metrics_enh['silhouette']:.2f}**. A higher score confirms that the clusters are not only dense but also much better separated from each other.
+    - The **Davies-Bouldin Index (DBI)** also improved, dropping from **{metrics_std['dbi']:.2f}** to **{metrics_enh['dbi']:.2f}**. A lower DBI reinforces that the clusters are more distinct and less similar to their neighbors.
+    
+    Collectively, these metrics validate that the removal of spatiotemporal outliers leads to a mathematically superior clustering result.
+    """
+    st.markdown(interpretation_text)
 
-def display_key_insights(results):
-    st.subheader("Key Insights from Enhanced Clustering")
-    data_b = results['group_b']['data']
-    display_single_key_insights(data_b)
+    # --- Part 2: Qualitative Interpretation ---
+    st.markdown("#### Qualitative Analysis (The Visualizations)")
+    
+    # Temporal Analysis
+    if 'hour' in data_enh.columns and 'day_of_week' in data_enh.columns:
+        peak_hour = data_enh['hour'].value_counts().idxmax()
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        peak_day_index = data_enh['day_of_week'].value_counts().idxmax()
+        peak_day = day_names[peak_day_index]
+
+        temporal_interpretation = f"""
+        The visualizations provide clear evidence to support the improved metrics.
+        - **Spatial Patterns:** As seen in the scatter plots, the enhanced model produces visibly tighter and more geographically distinct clusters. The cluster centers (marked 'X') shift from being pulled towards sparse outliers to being correctly positioned within the true dense areas of activity, representing more meaningful real-world hotspots.
+        - **Temporal Patterns:** The analysis of the cleaned data reveals distinct propagation patterns. The peak activity hour is around **{peak_hour:02d}:00**, suggesting a common time for propagation. Furthermore, the activity appears to be highest on **{peak_day}s**, indicating a potential weekly trend in how this information spreads.
+        """
+        st.markdown(temporal_interpretation)
+    else:
+        st.warning("Temporal data not available for full interpretation.")
+

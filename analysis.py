@@ -19,6 +19,7 @@ def _prepare_data_for_clustering(df):
     
     return X_scaled, df
 
+
 def run_standard_analysis(df_raw, n_clusters):
     """Runs K-Means on the raw, prepared data."""
     st.info("Preparing data for standard analysis...")
@@ -28,16 +29,18 @@ def run_standard_analysis(df_raw, n_clusters):
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled)
     
+   
     results = {
         'name': 'Standard K-Means',
         'metrics': {
             'inertia': kmeans.inertia_,
-            'silhouette': silhouette_score(X_scaled, labels),
+            'silhouette': silhouette_score(X_scaled, labels), 
             'dbi': davies_bouldin_score(X_scaled, labels)
         },
         'data': df_features.assign(cluster=labels)
     }
     return results
+
 
 def run_enhanced_analysis(df_raw, n_clusters, contamination):
     """Runs Isolation Forest to remove outliers, then K-Means."""
@@ -53,7 +56,6 @@ def run_enhanced_analysis(df_raw, n_clusters, contamination):
     
     st.success(f"Removed {len(df_features) - len(df_cleaned)} outliers. {len(df_cleaned)} data points remaining.")
 
-    # --- ENHANCEMENT: Check if enough data points are left ---
     if len(df_cleaned) < n_clusters:
         st.error(f"Stopping analysis. After removing outliers, only {len(df_cleaned)} data points remain, which is not enough to form {n_clusters} clusters. Please try a lower outlier percentage or use a larger dataset.")
         return None
@@ -62,13 +64,15 @@ def run_enhanced_analysis(df_raw, n_clusters, contamination):
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled_cleaned)
     
+   
     results = {
         'name': 'Enhanced K-Means',
         'metrics': {
-            'inertia': kmeans.inertia_,
+            'inertia': kmeans.inertia_, 
             'silhouette': silhouette_score(X_scaled_cleaned, labels),
             'dbi': davies_bouldin_score(X_scaled_cleaned, labels)
         },
         'data': df_cleaned.assign(cluster=labels)
     }
     return results
+
