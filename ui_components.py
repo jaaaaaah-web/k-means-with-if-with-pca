@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from geopy.geocoders import Nominatim
 import altair as alt
 
 # --- Helper Function for Color Mapping ---
@@ -10,8 +9,34 @@ def get_colors(num_colors):
         "#FF0000", "#0000FF", "#00FF00", "#FFFF00", "#FF00FF",
         "#00FFFF", "#FFA500", "#800080", "#008000", "#800000"
     ]
-    # Ensure we have enough colors by cycling through the list if needed
     return [colors[i % len(colors)] for i in range(num_colors)]
+
+# --- NEW FUNCTION FOR ELBOW PLOT ---
+def display_elbow_plot(inertias, optimal_k):
+    """Displays the Elbow Method plot to help choose K."""
+    st.subheader("Optimal K Determination (Elbow Method)")
+    
+    elbow_df = pd.DataFrame({
+        'Number of Clusters (K)': range(2, len(inertias) + 2),
+        'Inertia': inertias
+    })
+    
+    chart = alt.Chart(elbow_df).mark_line(point=True).encode(
+        x=alt.X('Number of Clusters (K):O', axis=alt.Axis(labelAngle=0)),
+        y=alt.Y('Inertia:Q', title='Inertia'),
+        tooltip=['Number of Clusters (K)', 'Inertia']
+    ).properties(
+        title="Elbow Method for Optimal K"
+    )
+    
+    # Add a vertical line to mark the detected elbow
+    elbow_rule = alt.Chart(pd.DataFrame({'K': [optimal_k]})).mark_rule(color='red', strokeDash=[3,3]).encode(
+        x='K:O'
+    )
+    
+    st.altair_chart(chart + elbow_rule, use_container_width=True)
+    st.success(f"**Data-Driven Recommendation:** The optimal number of clusters (K) found for this dataset is **{optimal_k}**. The slider in the sidebar has been set to this value.")
+
 
 # --- Visualization Functions ---
 def display_evaluation_metrics(standard_results, enhanced_results):
@@ -30,8 +55,10 @@ def display_spatial_visualizations(standard_results, enhanced_results, single_vi
     """
     Displays spatial visualizations using scatter plots to show cluster centers.
     """
+    st.subheader("Spatial Visualization Comparison" if not single_view else title)
+    
+    # This block handles the case where we only want to show one map
     if single_view:
-        st.write(f"**{title}**")
         results = standard_results if standard_results else enhanced_results
         if results and 'data' in results:
             data = results['data']
@@ -53,7 +80,7 @@ def display_spatial_visualizations(standard_results, enhanced_results, single_vi
             st.altair_chart(points + cluster_centers, use_container_width=True)
         return
 
-    st.subheader("Spatial Visualization Comparison")
+    # This block handles the side-by-side comparison
     col1, col2 = st.columns(2)
     
     with col1:
@@ -93,7 +120,6 @@ def display_temporal_patterns(enhanced_results):
         daily_counts = daily_counts.reindex(day_names).fillna(0)
         st.bar_chart(daily_counts)
 
-# --- NEW DYNAMIC INTERPRETATION FUNCTION ---
 def display_dynamic_interpretation(standard_results, enhanced_results):
     """
     Analyzes the results and generates a dynamic, human-readable interpretation.
@@ -105,7 +131,7 @@ def display_dynamic_interpretation(standard_results, enhanced_results):
     data_enh = enhanced_results['data']
 
     # --- Part 1: Quantitative Interpretation ---
-    st.markdown("#### Quantitative Analysis (The Metrics)")
+    st.markdown(" The Metrics ")
     
     inertia_change = metrics_enh['inertia'] - metrics_std['inertia']
     silhouette_change = metrics_enh['silhouette'] - metrics_std['silhouette']
@@ -122,7 +148,7 @@ def display_dynamic_interpretation(standard_results, enhanced_results):
     st.markdown(interpretation_text)
 
     # --- Part 2: Qualitative Interpretation ---
-    st.markdown("#### Qualitative Analysis (The Visualizations)")
+    st.markdown(" Visualizations")
     
     # Temporal Analysis
     if 'hour' in data_enh.columns and 'day_of_week' in data_enh.columns:

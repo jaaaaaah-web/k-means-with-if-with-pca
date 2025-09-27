@@ -1,74 +1,100 @@
-import streamlit as st
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 from sklearn.preprocessing import StandardScaler
+from kneed import KneeLocator # New import for finding the elbow
 
-def _prepare_data_for_clustering(df):
-    """Internal helper to extract features and scale the data."""
-    df['hour'] = df['timestamp'].dt.hour
-    df['day_of_week'] = df['timestamp'].dt.dayofweek
-    df['month'] = df['timestamp'].dt.month
+# --- OBJECTIVE 3: Implement a Framework for processing spatiotemporal datasets
+def prepare_data_for_clustering(df):
+    """
+    Extracts features from timestamp and scales the data.
+    This is the essential preparation step for both models.
+    """
+    # Create a copy to avoid modifying the original DataFrame
+    df_copy = df.copy()
     
-    features = ['latitude', 'longitude', 'hour', 'day_of_week', 'month']
-    X = df[features]
+    # Feature Extraction from timestamp
+    df_copy['hour'] = df_copy['timestamp'].dt.hour
+    df_copy['day_of_week'] = df_copy['timestamp'].dt.dayofweek
+    
+    # Define the features to be used for clustering
+    features = ['latitude', 'longitude', 'hour', 'day_of_week']
+    X = df_copy[features]
 
+    # Scale features for distance-based algorithms like K-Means
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    return X_scaled, df
+    return X_scaled, df_copy # Return the scaled data and the df with new time features
 
-
-def run_standard_analysis(df_raw, n_clusters):
-    """Runs K-Means on the raw, prepared data."""
-    st.info("Preparing data for standard analysis...")
-    X_scaled, df_features = _prepare_data_for_clustering(df_raw.copy())
+# --- NEW FUNCTION FOR ELBOW METHOD ---
+def find_optimal_k(scaled_data, k_range=(2, 11)):
+    """
+    Runs K-Means for a range of k and finds the optimal k using the Elbow Method.
+    """
+    inertias = []
+    ks = range(k_range[0], k_range[1])
+    for k in ks:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(scaled_data)
+        inertias.append(kmeans.inertia_)
     
-    st.info(f"Running Standard K-Means with K={n_clusters}...")
+    # Use KneeLocator to find the "elbow" of the inertia curve
+    try:
+        kn = KneeLocator(list(ks), inertias, curve='convex', direction='decreasing')
+        optimal_k = kn.elbow if kn.elbow else 4 # Default to 4 if elbow isn't found
+    except Exception:
+        optimal_k = 4 # Default to 4 in case of any error
+        
+    return inertias, optimal_k
+
+# --- OBJECTIVE 2 & 4: Compare performance before and after applying Isolation Forest
+def run_standard_analysis(df, n_clusters):
+    """
+    Runs the standard K-Means analysis without outlier removal.
+    """
+    X_scaled, df_with_features = prepare_data_for_clustering(df)
+    
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled)
     
-   
     results = {
-        'name': 'Standard K-Means',
         'metrics': {
             'inertia': kmeans.inertia_,
-            'silhouette': silhouette_score(X_scaled, labels), 
+            'silhouette': silhouette_score(X_scaled, labels),
             'dbi': davies_bouldin_score(X_scaled, labels)
         },
-        'data': df_features.assign(cluster=labels)
+        'data': df_with_features.assign(cluster=labels)
     }
     return results
 
+# --- OBJECTIVE 1: Develop an enhanced model by integrating Isolation Forest
+def run_enhanced_analysis(df, n_clusters, contamination):
+    """
+    Runs the enhanced K-Means analysis with Isolation Forest outlier removal.
+    """
+    X_scaled, df_with_features = prepare_data_for_clustering(df)
 
-def run_enhanced_analysis(df_raw, n_clusters, contamination):
-    """Runs Isolation Forest to remove outliers, then K-Means."""
-    st.info("Preparing data for enhanced analysis...")
-    X_scaled, df_features = _prepare_data_for_clustering(df_raw.copy())
-
-    st.info(f"Detecting outliers with Isolation Forest (contamination={contamination:.0%})...")
+    # Apply Isolation Forest to detect outliers
     iso_forest = IsolationForest(contamination=contamination, random_state=42)
     outlier_preds = iso_forest.fit_predict(X_scaled)
 
-    df_cleaned = df_features[outlier_preds == 1].copy()
+    # Check if enough data points remain after outlier removal
+    if (outlier_preds == 1).sum() < n_clusters:
+        return {'error': f"Not enough data points ({ (outlier_preds == 1).sum() }) remained after outlier removal to form {n_clusters} clusters. Try a lower outlier percentage."}
+        
+    # Create new DataFrames without the outliers
+    df_cleaned = df_with_features[outlier_preds == 1].copy()
     X_scaled_cleaned = X_scaled[outlier_preds == 1]
     
-    st.success(f"Removed {len(df_features) - len(df_cleaned)} outliers. {len(df_cleaned)} data points remaining.")
-
-    if len(df_cleaned) < n_clusters:
-        st.error(f"Stopping analysis. After removing outliers, only {len(df_cleaned)} data points remain, which is not enough to form {n_clusters} clusters. Please try a lower outlier percentage or use a larger dataset.")
-        return None
-    
-    st.info(f"Running Enhanced K-Means with K={n_clusters} on cleaned data...")
+    # Run K-Means on the cleaned data
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled_cleaned)
-    
-   
+
     results = {
-        'name': 'Enhanced K-Means',
         'metrics': {
-            'inertia': kmeans.inertia_, 
+            'inertia': kmeans.inertia_,
             'silhouette': silhouette_score(X_scaled_cleaned, labels),
             'dbi': davies_bouldin_score(X_scaled_cleaned, labels)
         },
