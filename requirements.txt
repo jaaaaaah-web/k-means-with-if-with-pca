@@ -1,0 +1,22 @@
+Core web application framework
+streamlit
+
+Data manipulation and analysis
+pandas
+numpy
+scikit-learn
+
+Geospatial data processing
+geopy
+
+Automated Elbow Method calculation
+kneed
+
+Charting and visualization
+altair
+
+Advanced web scraping for dynamic content
+selenium
+webdriver-manager
+requests
+beautifulsoup4
