@@ -18,6 +18,7 @@ st.set_page_config(
 )
 
 # --- App State Management ---
+# --- App State Management ---
 if 'step' not in st.session_state:
     st.session_state.step = "upload"
 if 'data' not in st.session_state:
@@ -120,13 +121,21 @@ if st.session_state.step == "analysis":
     
     # CONSOLIDATED PARAMETERS IN SIDEBAR
     st.sidebar.write("Set the parameters for the analyses:")
-    # The default value is now the optimal k found in the previous step
     n_clusters = st.sidebar.slider(
         "Number of Clusters (K)", 
         min_value=2, 
         max_value=10, 
         value=st.session_state.optimal_k, 
         key="k_clusters"
+    )
+
+    # NEW: Slider for PCA components
+    n_components = st.sidebar.slider(
+        "Number of PCA Components (0 for no PCA)", 
+        min_value=0, 
+        max_value=4, 
+        value=4,
+        key="n_components"
     )
     
     st.sidebar.write("---") 
@@ -145,7 +154,7 @@ if st.session_state.step == "analysis":
 
     if st.button("Run Standard Analysis"):
         with st.spinner("Running Standard K-Means..."):
-            st.session_state.standard_results = run_standard_analysis(st.session_state.prepared_data, n_clusters)
+            st.session_state.standard_results = run_standard_analysis(st.session_state.prepared_data, n_clusters, n_components if n_components > 0 else None)
         st.rerun()
 
     # Part B: Enhanced K-Means (appears after standard is done)
@@ -163,7 +172,7 @@ if st.session_state.step == "analysis":
 
         if st.button("Run Enhanced Analysis"):
             with st.spinner("Running Enhanced K-Means..."):
-                st.session_state.enhanced_results = run_enhanced_analysis(st.session_state.prepared_data, n_clusters, contamination)
+                st.session_state.enhanced_results = run_enhanced_analysis(st.session_state.prepared_data, n_clusters, contamination, n_components if n_components > 0 else None)
             st.rerun()
             
         if st.session_state.enhanced_results:
@@ -190,4 +199,3 @@ if st.session_state.step == "analysis":
             display_spatial_visualizations(st.session_state.standard_results, st.session_state.enhanced_results)
             display_temporal_patterns(st.session_state.enhanced_results)
             display_dynamic_interpretation(st.session_state.standard_results, st.session_state.enhanced_results)
-
